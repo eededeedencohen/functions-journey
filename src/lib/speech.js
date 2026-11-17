@@ -63,7 +63,6 @@ export const readTime = (text) => 1300 + text.length * 60;
 // ------------------------------------------------------------------ recordings (ElevenLabs)
 let audio = null;
 const clips = new Map(); // file -> Promise<object url>
-let failures = 0; // several misses in a row = no voice server here, stop asking
 
 function player() {
   if (!audio) {
@@ -93,24 +92,29 @@ function silentWav() {
   return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
 }
 
-const useRecording = (voice) => failures < 3 && VOICES.some((v) => v.key === voice);
+const useRecording = (voice) => VOICES.some((v) => v.key === voice);
 
+// Each sentence is judged on its own: a sentence without a recording (hosting without an
+// ElevenLabs key) falls back to the device voice, while recorded sentences keep playing.
 function loadClip(voice, clean) {
   const file = ttsFile(voice, clean);
   if (!clips.has(file)) {
+    let missing = false; // "there is no such recording" (as opposed to a passing network error)
     const p = fetch(`${file}?t=${encodeURIComponent(clean)}`)
       .then((r) => {
+        missing = r.status === 404 || r.status === 400;
         if (!r.ok) throw new Error('tts ' + r.status);
         return r.blob();
       })
       .then((blob) => {
-        if (blob.size < 400 || !/audio/.test(blob.type)) throw new Error('tts: not audio');
-        failures = 0;
+        if (blob.size < 400 || !/audio/.test(blob.type)) {
+          missing = true;
+          throw new Error('tts: not audio');
+        }
         return URL.createObjectURL(blob);
       });
     p.catch(() => {
-      failures++;
-      setTimeout(() => clips.delete(file), 30000); // allow another try later
+      if (!missing) setTimeout(() => clips.delete(file), 30000); // passing error: try again later
     });
     clips.set(file, p);
   }
