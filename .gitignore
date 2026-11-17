@@ -1,0 +1,10 @@
+node_modules
+dist
+# the student's saved progress (the mini database)
+data/
+# secret keys
+*.env
+.env*
+# worksheet photos (copyrighted, "do not distribute") and voice audition samples
+photo_*.jpg
+voice-samples/

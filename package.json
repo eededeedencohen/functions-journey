@@ -1,0 +1,23 @@
+{
+  "name": "math-course",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "voices": "node scripts/generate-voices.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/fredoka": "^5.0.0",
+    "@fontsource-variable/rubik": "^5.0.0",
+    "lucide-react": "^1.74.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}
