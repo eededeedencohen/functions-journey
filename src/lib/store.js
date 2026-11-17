@@ -81,24 +81,56 @@ function schedulePush() {
   pushTimer = setTimeout(push, 700);
 }
 
-/** read the server file; adopt it unless this device has changes that were not sent yet */
+/**
+ * Combine what this device has with what the server has, without ever losing progress:
+ * progress only grows (more stars, more finished lessons), so each part keeps the fuller side.
+ * A deliberate reset is the exception — the side that was reset most recently wins as a whole.
+ */
+function merge(local, remote) {
+  const lr = local.resetAt || 0;
+  const rr = remote.resetAt || 0;
+  if (lr !== rr) return lr > rr ? local : remote;
+  const practice = { ...remote.practice };
+  for (const [k, v] of Object.entries(local.practice)) if (!practice[k] || v.total > practice[k].total) practice[k] = v;
+  const booklet = { ...remote.booklet };
+  for (const [k, v] of Object.entries(local.booklet)) booklet[k] = Math.max(v, booklet[k] ?? 0);
+  const tests = [...new Map([...remote.tests, ...local.tests].map((t) => [t.date, t])).values()].sort((a, b) => a.date - b.date).slice(-30);
+  return {
+    ...remote,
+    stars: Math.max(local.stars, remote.stars),
+    lessons: { ...remote.lessons, ...local.lessons },
+    practice,
+    booklet,
+    tests,
+  };
+}
+
+/** read the server file and bring this device and the server to the same, fullest state */
 async function pull() {
   try {
     const r = await fetch(API, { cache: 'no-store' });
     if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) throw new Error('no database');
     const j = await r.json();
     setOnline(true);
-    if (sync.dirty) return push();
-    if (j.state && j.rev !== sync.rev) {
-      state = normalize(j.state);
+    if (!j.state) {
+      // the server file is empty (first time, or the host wiped it): refill it from this device
+      if (hasProgress(state) || sync.dirty) push();
+      return;
+    }
+    const remote = normalize(j.state);
+    let merged = merge(state, remote);
+    // choices made here that were not sent yet (name, settings) stay
+    if (sync.dirty && merged !== state) merged = { ...merged, name: state.name, settings: state.settings };
+    if (JSON.stringify(merged) !== JSON.stringify(state)) {
+      state = merged;
       write(KEY, state);
-      sync = { rev: j.rev, dirty: false };
-      write(SYNC_KEY, sync);
       setSfxEnabled(state.settings.sfx);
       notify();
-    } else if (!j.state && hasProgress(state)) {
-      push(); // first time: the server file is empty, start it from what this device has
     }
+    const serverBehind = JSON.stringify(merged) !== JSON.stringify(remote);
+    sync = { rev: j.rev, dirty: serverBehind };
+    write(SYNC_KEY, sync);
+    if (serverBehind) push();
   } catch {
     setOnline(false);
   }
@@ -154,5 +186,6 @@ export const actions = {
   recordTest: (grade, kind) =>
     set((s) => ({ ...s, tests: [...s.tests, { date: Date.now(), grade, kind }].slice(-30) })),
   setSetting: (k, v) => set((s) => ({ ...s, settings: { ...s.settings, [k]: v } })),
-  reset: () => set({ ...initial, settings: state.settings }),
+  // resetAt marks a deliberate reset, so other devices drop their old progress too
+  reset: () => set({ ...initial, settings: state.settings, resetAt: Date.now() }),
 };
