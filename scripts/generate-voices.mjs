@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { UNITS } from '../src/lib/lessons.js';
-import { BOOKLET } from '../src/lib/generators.js';
+import { BOOKLET, poolProblems } from '../src/lib/generators.js';
 import { FIXED_PHRASES } from '../src/lib/phrases.js';
 import { VOICES, cleanText, hashText } from '../src/lib/tts.shared.js';
 import { MODEL_QUALITY, audioPath, readKey, synthesize } from '../tts-server.js';
@@ -23,12 +23,14 @@ for (const u of UNITS)
     add(s.quiz?.right);
     add(s.quiz?.wrong);
   }
-for (const item of BOOKLET)
-  for (const problem of item.build())
-    for (const part of problem.parts) {
-      add(part.say);
-      part.solution.forEach((s) => add(s.say));
-    }
+const lessonCount = texts.size;
+// booklet pages + the whole practice/test pool: the question and every step of its explanation
+for (const problem of [...BOOKLET.flatMap((item) => item.build()), ...poolProblems()])
+  for (const part of problem.parts) {
+    add(part.say);
+    part.solution.forEach((s) => add(s.say));
+  }
+console.log(`lessons and phrases: ${lessonCount} sentences | booklet + exercise pool: ${texts.size - lessonCount} sentences`);
 
 const jobs = [];
 for (const voice of VOICES)
@@ -61,5 +63,5 @@ const worker = async () => {
     if (++done % 25 === 0) console.log(`  ${done} done...`);
   }
 };
-await Promise.all(Array.from({ length: 4 }, worker));
+await Promise.all(Array.from({ length: 4 }, worker)); // the plan allows 5 requests at a time
 console.log(`finished: ${done - failed} recorded, ${failed} failed`);

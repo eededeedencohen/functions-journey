@@ -7,7 +7,7 @@
 //   type 'plot'   -> answers [[x, y], ...] (tap several points)
 // A solution step uses the same shape as a lesson step: { say, text, graph?, table?, eq? }
 
-import { fmt, say, par, body, sayBody, expr, sayExpr, xPlus, sayXPlus, mx, sayMx, subst, sayName, randInt, pick, shuffle, range } from './math.js';
+import { fmt, say, par, body, sayBody, expr, sayExpr, xPlus, sayXPlus, mx, sayMx, subst, sayName, seeded, shuffle, range } from './math.js';
 import { C } from './colors.js';
 
 const R6 = { xmin: -6, xmax: 6, ymin: -6, ymax: 6 };
@@ -41,7 +41,7 @@ export function makeGraphProblem({ m, b, name = 'f', parts = ['table', 'rate', '
   const base = { ...R6, lines: [{ id: 'L', m, b }] };
   if (!xs) {
     const ok = range(-6, 6).filter((x) => Math.abs(f(x)) <= 6);
-    const start = randInt(0, Math.max(0, ok.length - 5));
+    const start = Math.floor(Math.max(0, ok.length - 5) / 2); // the middle of the visible part
     xs = ok.slice(start, start + 5);
   }
   const ys = xs.map(f);
@@ -480,23 +480,8 @@ export function makeTableProblem({ m, b, name = 'f', xs, evalXs, graphRange = R1
 }
 
 /** small yes/no exercise: is the rate of change constant? (with the classic traps) */
-export function makeTableCheck() {
-  const name = pick(['f', 'g', 'h']);
-  const linear = Math.random() < 0.5;
-  const s = randInt(-2, 3);
-  const xs = [s, s + 1, s + 3, s + pick([4, 6])];
-  let ys;
-  let m = null;
-  if (linear) {
-    m = pick([2, -2, 3, -3, 1, -1, 4]);
-    const b = randInt(-4, 6);
-    ys = xs.map((x) => m * x + b);
-  } else {
-    // the trap: f grows by the same amount every time, but the jumps in x are different
-    const d = pick([2, 4, -2, -4, 6]);
-    const y0 = randInt(-5, 8);
-    ys = xs.map((_, i) => y0 + d * i);
-  }
+export function makeTableCheck({ name = 'h', xs, ys, m = null }) {
+  const linear = m !== null; // m = the constant rate, or null when the rate changes
   const T = { name, xs, ys };
   const gaps = xs.slice(1).map((x, i) => ({ dx: x - xs[i], dy: ys[i + 1] - ys[i] }));
   const gapSay = (g, i) =>
@@ -640,82 +625,123 @@ export function makeEquation({ a, b, c, form = 'paren', title }) {
 }
 
 // =====================================================================================
-//  random specs
+//  the exercise pool
 // =====================================================================================
-const NAMES = ['f', 'g', 'h'];
+// Practice and the test draw from a fixed, large pool instead of inventing numbers on the
+// spot. Because every exercise is known ahead of time, the full spoken explanation of each
+// one is recorded with the ElevenLabs voices (`npm run voices`) — no API key is needed
+// where the course is hosted. The pool is built with a seeded random source, so it is the
+// same on every machine; changing POOL_SEED or the sizes means recording again.
+const POOL_SEED = 20261118;
 
-/** a line whose zero and values are whole numbers inside the −6..6 window */
-export function randomLine({ intZero = true } = {}) {
-  const m = pick([1, -1, 2, -2, 3, -3, 1, -1, 2, -2]);
-  const name = pick(NAMES);
-  if (!intZero) {
-    let b = randInt(-4, 4);
-    if (b === 0) b = pick([-3, 3]);
-    return { m, b, name };
+function buildPool() {
+  const r = seeded(POOL_SEED);
+  const unique = (count, make) => {
+    const seen = new Set();
+    const out = [];
+    for (let tries = 0; out.length < count && tries < 20000; tries++) {
+      const item = make();
+      const key = item && JSON.stringify(item);
+      if (item && !seen.has(key)) {
+        seen.add(key);
+        out.push(item);
+      }
+    }
+    return out;
+  };
+
+  // every line whose zero and values are whole numbers inside the −6..6 window
+  const lines = [];
+  for (const m of [1, -1, 2, -2, 3, -3]) {
+    const max = Math.min(5, Math.floor(6 / Math.abs(m)));
+    for (let x0 = -max; x0 <= max; x0++) if (x0 !== 0) lines.push({ m, b: -m * x0, name: 'f' });
   }
-  const maxX0 = Math.min(5, Math.floor(6 / Math.abs(m)));
-  const x0 = randInt(1, maxX0) * pick([1, -1]);
-  return { m, b: -m * x0, name };
-}
 
-/** a table with uneven jumps in x (like the worksheet), all points inside −10..10 */
-export function randomTableSpec() {
-  for (let tries = 0; tries < 400; tries++) {
-    const m = pick([1, -1, 2, -2, 3, -3, 2, -2]);
-    const b = randInt(-8, 8);
-    if (b === 0) continue;
-    let x = randInt(-3, 2);
+  // tables with uneven jumps in x (like the worksheet), all points inside −10..10
+  const tables = unique(16, () => {
+    const m = r.pick([1, -1, 2, -2, 3, -3, 2, -2]);
+    const b = r.int(-8, 8);
+    let x = r.int(-3, 2);
     const xs = [x];
     for (let i = 0; i < 4; i++) {
-      x += pick([1, 1, 2, 2, 3]);
+      x += r.pick([1, 1, 2, 2, 3]);
       xs.push(x);
     }
-    if (xs.includes(0)) continue;
     const ys = xs.map((v) => m * v + b);
-    if (ys.some((y) => Math.abs(y) > 10) || xs.some((v) => Math.abs(v) > 10)) continue;
-    if (new Set(xs.slice(1).map((v, i) => v - xs[i])).size < 2) continue;
-    const far = xs[4] + randInt(2, 6);
-    const near = pick([0, -4, -5, -6].filter((v) => !xs.includes(v)));
-    return { m, b, xs, evalXs: [far, near], name: pick(NAMES) };
-  }
-  return { m: 1, b: 3, xs: [1, 3, 4, 5, 7], evalXs: [10, 0], name: 'f' };
+    if (b === 0 || xs.includes(0) || ys.some((y) => Math.abs(y) > 10) || xs.some((v) => Math.abs(v) > 10)) return null;
+    if (new Set(xs.slice(1).map((v, i) => v - xs[i])).size < 2) return null;
+    const far = xs[4] + r.int(2, 6);
+    const near = r.pick([0, -4, -5, -6].filter((v) => !xs.includes(v)));
+    return { m, b, xs, evalXs: [far, near], name: 'g' };
+  });
+
+  // "is the rate constant?" — half are straight lines, half are the classic trap
+  const checks = unique(14, () => {
+    const s = r.int(-2, 3);
+    const xs = [s, s + 1, s + 3, s + r.pick([4, 6])];
+    if (r.int(0, 1)) {
+      const m = r.pick([2, -2, 3, -3, 1, -1, 4]);
+      const b = r.int(-4, 6);
+      return { name: 'h', xs, ys: xs.map((x) => m * x + b), m };
+    }
+    // the trap: the function grows by the same amount every time, but the jumps in x differ
+    const d = r.pick([2, 4, -2, -4, 6]);
+    const y0 = r.int(-5, 8);
+    return { name: 'h', xs, ys: xs.map((_, i) => y0 + d * i), m: null };
+  });
+
+  const linear = unique(36, () => {
+    const a = r.int(2, 6) * r.pick([1, 1, -1]);
+    const b = r.int(1, 12) * r.pick([1, -1]);
+    return { a, b, c: a * r.int(-9, 9) + b, form: 'linear' };
+  });
+  const paren = unique(54, () => {
+    const x = r.int(-9, 9);
+    const a = r.int(2, 9) * r.pick([1, -1]);
+    let b = r.int(1, 9) * r.pick([1, -1]);
+    if (x + b === 0 && r.int(1, 10) <= 7) b += b > 0 ? 1 : -1; // "= 0" equations only once in a while
+    return { a, b, c: a * (x + b), form: 'paren' };
+  });
+  return { lines, tables, checks, linear, paren };
 }
 
-export function randomEquation(form) {
-  const kind = form || pick(['paren', 'paren', 'linear']);
-  const x = randInt(-9, 9);
-  if (kind === 'paren') {
-    let a = randInt(2, 9) * pick([1, -1]);
-    let b = randInt(1, 9) * pick([1, -1]);
-    if (x + b === 0 && Math.random() < 0.7) b += b > 0 ? 1 : -1; // "= 0" equations only once in a while
-    return makeEquation({ a, b, c: a * (x + b), form: 'paren' });
-  }
-  const a = randInt(2, 6) * pick([1, 1, -1]);
-  const b = randInt(1, 12) * pick([1, -1]);
-  return makeEquation({ a, b, c: a * x + b, form: 'linear' });
+export const POOL = buildPool();
+
+/** every pool exercise with all of its parts — what the voice recording script walks through */
+export const poolProblems = () => [
+  ...POOL.lines.map((l) => makeGraphProblem({ ...l, parts: ['table', 'rate', 'yint', 'zero', 'zeroPoint', 'expr'] })),
+  ...POOL.tables.map((t) => makeTableProblem(t)),
+  ...POOL.checks.map((c) => makeTableCheck(c)),
+  ...[...POOL.linear, ...POOL.paren].map((e) => makeEquation(e)),
+];
+
+// each kind is dealt like a shuffled deck: nothing repeats until the whole deck was used
+const decks = {};
+function draw(kind) {
+  if (!decks[kind] || !decks[kind].length) decks[kind] = shuffle(POOL[kind]);
+  return decks[kind].pop();
 }
 
 // =====================================================================================
 //  practice sources per unit, the test, and the booklet
 // =====================================================================================
 export const practiceFor = {
-  read: () => makeGraphProblem({ ...randomLine(), parts: ['table'] }),
-  rate: () => makeGraphProblem({ ...randomLine(), parts: ['rate'] }),
-  start: () => makeGraphProblem({ ...randomLine({ intZero: Math.random() < 0.5 }), parts: ['yint', 'rate', 'expr'] }),
-  eq: (i) => randomEquation(i < 2 ? 'linear' : undefined),
-  zero: () => makeGraphProblem({ ...randomLine(), parts: ['zero', 'zeroPoint'] }),
-  table: (i) => (i % 2 === 0 ? makeTableCheck() : makeTableProblem({ ...randomTableSpec(), parts: ['rate', 'plot', 'expr', 'eval'] })),
+  read: () => makeGraphProblem({ ...draw('lines'), parts: ['table'] }),
+  rate: () => makeGraphProblem({ ...draw('lines'), parts: ['rate'] }),
+  start: () => makeGraphProblem({ ...draw('lines'), parts: ['yint', 'rate', 'expr'] }),
+  eq: (i) => makeEquation(draw(i < 2 || i % 3 === 2 ? 'linear' : 'paren')),
+  zero: () => makeGraphProblem({ ...draw('lines'), parts: ['zero', 'zeroPoint'] }),
+  table: (i) => (i % 2 === 0 ? makeTableCheck(draw('checks')) : makeTableProblem({ ...draw('tables'), parts: ['rate', 'plot', 'expr', 'eval'] })),
 };
 
 export function buildTest(kind = 'full') {
   const short = kind === 'short';
   return [
-    makeGraphProblem({ ...randomLine(), name: 'f', parts: short ? ['table', 'rate', 'zero'] : ['table', 'rate', 'zero', 'zeroPoint', 'yint'] }),
-    makeTableProblem({ ...randomTableSpec(), name: 'g', parts: short ? ['rate', 'expr', 'eval'] : ['const', 'rate', 'plot', 'expr', 'eval'] }),
-    ...shuffle(short ? ['linear', 'paren', 'paren'] : ['linear', 'paren', 'paren', 'paren', 'paren']).map((f) => randomEquation(f)),
+    makeGraphProblem({ ...draw('lines'), parts: short ? ['table', 'rate', 'zero'] : ['table', 'rate', 'zero', 'zeroPoint', 'yint'] }),
+    makeTableProblem({ ...draw('tables'), parts: short ? ['rate', 'expr', 'eval'] : ['const', 'rate', 'plot', 'expr', 'eval'] }),
+    ...shuffle(short ? ['linear', 'paren', 'paren'] : ['linear', 'paren', 'paren', 'paren', 'paren']).map((f) => makeEquation(draw(f))),
   ];
 }
-
 const BOOK_EQS = [
   [7, 3, -14], [-5, 5, 25], [-7, -10, 21], [-3, 10, -12], [-6, 3, -72], [10, -3, 30], [1, -3, -8], [1, -1, -2],
   [-5, -2, -5], [4, -6, -56], [-5, 9, -65], [-5, -2, -35], [-9, -9, 162], [3, 9, 33], [-6, 1, 6], [2, -2, 4],
